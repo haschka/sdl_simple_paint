@@ -6,10 +6,95 @@
 #include <fcntl.h>                                                              
                                                                                 
 #include <SDL2/SDL.h>                                                           
-#define SDL_MAIN_HANDLED                                                        
-                                                                                
-unsigned int framenumber = 0;
+#define SDL_MAIN_HANDLED
 
+typedef struct {
+  unsigned char r;
+  unsigned char g;
+  unsigned char b;
+} color;
+
+color c_aqua      = {0,127,255};
+color c_salmon    = {255,102,102};
+color c_flora     = {102,255,102};
+color c_lavender  = {204,102,255};
+color c_tangerine = {255,127,0};
+color c_aluminium = {153,153,153};
+color c_mocha     = {127,63,0};
+color c_sky       = {102,204,255};
+color c_banana    = {255,255,204};
+color c_black     = {0, 0, 0};
+color c_white     = {255, 255,255};
+color c_red       = {255,0,0};
+color c_green     = {0,255,0};
+color c_blue      = {0,0,255};
+
+color* gen_initial_palette() {
+  color* p = (color*)malloc(sizeof(color)*16);
+
+  color grey180 = {180,180,180};
+  color grey230 = {230,230,230}; 
+    
+  p[0] = c_aqua;     
+  p[1] = c_salmon;   
+  p[2] = c_flora;    
+  p[3] = c_lavender; 
+  p[4] = c_tangerine;
+  p[5] = c_aluminium;
+  p[6] = c_mocha;    
+  p[7] = c_sky;      
+  p[8] = c_banana;   
+  p[9] = c_black;    
+  p[10] = c_white;    
+  p[11] = c_red;      
+  p[12] = c_green;    			    
+  p[13] = c_blue;
+  p[14] = grey180;
+  p[15] = grey230;
+  return(p);
+}
+
+void draw_full_color_palette_image(unsigned int *palette_image,
+				   color* palette) {
+
+  int i,j,k ;
+  unsigned int start ;
+
+  unsigned int* pixel_i;
+  unsigned char* pixel_c;
+
+  color c;
+  
+  for(i=0;i<16;i++){
+    start=i*40;
+    c = palette[i];
+    for(j=0;j<40;j++) {
+      for(k=0;k<40;k++) {
+	pixel_i = palette_image+j*640+start+k;
+
+	#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+
+	pixel_c[0] = c.b;
+	pixel_c[1] = c.g;
+	pixel_c[2] = c.r;
+	pixel_c[3] = 255;
+
+#endif
+
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    
+	pixel_c[3] = c.b;
+	pixel_c[2] = c.g;
+	pixel_c[1] = c.r;
+	pixel_c[0] = 255;
+
+#endif
+      }
+    }
+  }
+}
+
+	
 
 void change_pixel_color_in_image(unsigned int *image,
 				 unsigned int width,
@@ -84,7 +169,8 @@ void color_out_image(unsigned int *image,
 int main(int argc, char** argv) {
 
   unsigned int* image_frame;
-
+  unsigned int* colors_frame;
+  
   unsigned int width=640, height=480;
   
   SDL_Window *image_window = NULL;
@@ -96,30 +182,40 @@ int main(int argc, char** argv) {
   
   SDL_Event event;
   SDL_Texture *image_texture;
-  unsigned int pitch;
+  SDL_Texture *color_texture;
+  unsigned int pitch, color_pitch=640*480;
 
   int mouse_down = 0;
   
   SDL_SetMainReady();
 
   image_frame = (unsigned int*)malloc(sizeof(unsigned int)*width*height);
+  colors_frame = (unsigned int*)malloc(sizeof(unsigned int)*640*40);
   
   SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
 
-  image_window = SDL_CreateWindow("Image",100, 100, width, height, 0);
-  tools_window = SDL_CreateWindow("Tools",10,100, 80, 480, 0);
-  colors_window = SDL_CreateWindow("colors",100, 620, 640, 20, 0);
+  image_window = SDL_CreateWindow("Image",100, 20, width, height, 0);
+  tools_window = SDL_CreateWindow("Tools",10, 20, 80, 480, 0);
+  colors_window = SDL_CreateWindow("Colors",100, 520, 640, 40, 0);
   
 #ifdef SOFTWARE_RENDERING
   image_renderer = SDL_CreateRenderer(image_window,-1,SDL_RENDERER_SOFTWARE);
+  colors_renderer = SDL_CreateRenderer(colors_window,-1,SDL_RENDERER_SOFTWARE);
 #else
-  image_renderer = SDL_CreateRenderer(image_window,-1,SDL_RENDERER_ACCELERATED);
+  image_renderer = SDL_CreateRenderer(image_window,
+				      -1,SDL_RENDERER_ACCELERATED);
+  colors_renderer = SDL_CreateRenderer(colors_window,
+				      -1,SDL_RENDERER_ACCELERATED);
 #endif
 
   image_texture = SDL_CreateTexture(image_renderer, SDL_PIXELFORMAT_ARGB8888,
 				    SDL_TEXTUREACCESS_STREAMING,
 				    width,height);
+  color_texture = SDL_CreateTexture(colors_renderer, SDL_PIXELFORMAT_ARGB8888,
+				    SDL_TEXTUREACCESS_STREAMING,
+				    640,40);
 
+  
   SDL_LockTexture(image_texture,NULL,(void**)&image_frame, &pitch);
   color_out_image(image_frame,width,height,255,255,255);
   SDL_UnlockTexture(image_texture);
@@ -127,6 +223,14 @@ int main(int argc, char** argv) {
   SDL_RenderCopy(image_renderer,image_texture,NULL,NULL);
   
   SDL_RenderPresent(image_renderer);
+
+  SDL_LockTexture(color_texture,NULL,(void**)&colors_frame, &color_pitch);
+  draw_full_color_palette_image(colors_frame,gen_initial_palette());
+  SDL_UnlockTexture(color_texture);
+
+  SDL_RenderCopy(colors_renderer,color_texture,NULL,NULL);
+  
+  SDL_RenderPresent(colors_renderer);
   
   while(1) {
     
@@ -158,6 +262,7 @@ int main(int argc, char** argv) {
     
     SDL_Delay(10);
     SDL_RenderPresent(image_renderer);
+    SDL_RenderPresent(colors_renderer);
   }
  finish:
   return(0);
