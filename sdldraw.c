@@ -104,7 +104,8 @@ void change_pixel_color_in_image(unsigned int *image,
 				 unsigned int y,
 				 unsigned char r,
 				 unsigned char g,
-				 unsigned char b) {
+				 unsigned char b,
+				 int thickness) {
   
   unsigned int* pixel_i;
   unsigned char* pixel_c;
@@ -129,7 +130,7 @@ void change_pixel_color_in_image(unsigned int *image,
     pixel_c[0] = 255;
 
 #endif
-
+    
 }
 
 void color_out_image(unsigned int *image,
@@ -171,47 +172,67 @@ color get_color_by_click_on_colors_window(int x_offset, color* palette) {
   return(palette[x_offset/40]);
 }
 
-void sharp_pencil_tool(unsigned int* image, int width, int height,
-		       int x, int y, int prev_x, int prev_y,
-		       int prev_pos_avail, color c) {
+
+void bresenham_line(unsigned int* image, int width, int height,
+		    int x, int y, int prev_x, int prev_y, color c,
+		    int thickness,
+		    void (*app_at_pixel)(unsigned int*,
+					 unsigned int,
+					 unsigned int,
+					 unsigned int,
+					 unsigned int,
+					 unsigned char,
+					 unsigned char,
+					 unsigned char,
+					 int )) {
   
   int dx,sx;
   int dy,sy;
   
   int err;
   int err_times_two; 
+  
+  /* simple implementation of Bresenham's Algorithm */
+    
+  dx = abs(x-prev_x);   
+  dy = -abs(y-prev_y);  
+  sx = x < prev_x ? 1 : -1;
+  sy = y < prev_y ? 1 : -1;
+  
+  err = dx+dy;          
+  err_times_two = 2*err;
+  
+  while (1) {
+    app_at_pixel(image,width,height,x,y,c.r,c.g,c.b,thickness);
+    if(x == prev_x && y == prev_y) break;
+    err_times_two = 2*err;
+    if(err_times_two > dy) {err += dy; x+=sx;}
+    if(err_times_two < dx) {err += dx; y+=sy;}
+  }
+  
+}
+
+void draw_tool_box_image(unsigned int* tool_box_image) {
+}  
+
+void sharp_pencil_tool(unsigned int* image, int width, int height,
+		       int x, int y, int prev_x, int prev_y,
+		       int prev_pos_avail, color c, int thickness) {
 
   if(prev_pos_avail) {
-
-    /* simple implementation of Bresenham's Algorithm */
-    
-    dx = abs(x-prev_x);   
-    dy = -abs(y-prev_y);  
-    sx = x < prev_x ? 1 : -1;
-    sy = y < prev_y ? 1 : -1;
-
-    err = dx+dy;          
-    err_times_two = 2*err;
-    
-    while (1) {
-      change_pixel_color_in_image(image,width,height,x,y,c.r,c.g,c.b);
-	if(x == prev_x && y == prev_y) break;
-      err_times_two = 2*err;
-      if(err_times_two > dy) {err += dy; x+=sx;}
-      if(err_times_two < dx) {err += dx; y+=sy;}
-    }
-
+    bresenham_line(image, width, height, x, y, prev_x, prev_y, c, thickness,
+		   &change_pixel_color_in_image );
   } else {
-    change_pixel_color_in_image(image,width,height,x,y,c.r,c.g,c.b);
+    change_pixel_color_in_image(image,width,height,x,y,c.r,c.g,c.b, thickness);
   }
 }
 
-    
 
 int main(int argc, char** argv) {
 
   unsigned int* image_frame;
   unsigned int* colors_frame;
+  unsigned int* tools_frame;
   
   unsigned int width=640, height=480;
   unsigned int x, y;
@@ -229,7 +250,8 @@ int main(int argc, char** argv) {
   SDL_Event event;
   SDL_Texture *image_texture;
   SDL_Texture *color_texture;
-  unsigned int pitch = width*4, color_pitch=640*4;
+  SDL_Texture *tools_texture;
+  int pitch = width*4, color_pitch=640*4;
 
   int mouse_down = 0;
 
@@ -240,13 +262,14 @@ int main(int argc, char** argv) {
   color selected_color = {0,0,0};
   color* palette = gen_initial_palette();
 
-  void (*current_tool)(unsigned int*, int, int, int, int, int, int, int, color);
+  int tool_thickness = 1;
+  
+  void (*current_tool)(unsigned int*, int, int, int, int, int, int, int, color,
+		       int);
+  
   current_tool = &sharp_pencil_tool;
   
   SDL_SetMainReady();
-
-  image_frame = (unsigned int*)malloc(sizeof(unsigned int)*width*height);
-  colors_frame = (unsigned int*)malloc(sizeof(unsigned int)*640*40);
   
   SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
 
@@ -258,11 +281,14 @@ int main(int argc, char** argv) {
 #ifdef SOFTWARE_RENDERING
   image_renderer = SDL_CreateRenderer(image_window,-1,SDL_RENDERER_SOFTWARE);
   colors_renderer = SDL_CreateRenderer(colors_window,-1,SDL_RENDERER_SOFTWARE);
+  tools_renderer = SDL_CreateRenderer(tools_window,-1,SDL_RENDERER_SOFTWARE);
 #else
   image_renderer = SDL_CreateRenderer(image_window,
 				      -1,SDL_RENDERER_ACCELERATED);
   colors_renderer = SDL_CreateRenderer(colors_window,
 				      -1,SDL_RENDERER_ACCELERATED);
+  tools_renderer = SDL_CreateRenderer(tools_window,-1,
+				      SDL_RENDERER_ACCELERATED);
 #endif
 
   image_texture = SDL_CreateTexture(image_renderer, SDL_PIXELFORMAT_ARGB8888,
@@ -272,6 +298,9 @@ int main(int argc, char** argv) {
 				    SDL_TEXTUREACCESS_STREAMING,
 				    640,40);
 
+  tools_texture = SDL_CreateTexture(tools_renderer, SDL_PIXELFORMAT_ARGB8888,
+				    SDL_TEXTUREACCESS_STREAMING,
+				    80,480);
 
   image_window_id = SDL_GetWindowID(image_window);
   tools_window_id = SDL_GetWindowID(tools_window);
@@ -329,7 +358,7 @@ int main(int argc, char** argv) {
 
 	(*current_tool)(image_frame, width, height,
 		        x, y, prev_pos_x, prev_pos_y,
-		        prev_pos_avail, selected_color);
+		        prev_pos_avail, selected_color, tool_thickness);
 	
 	SDL_UnlockTexture(image_texture);
 	SDL_RenderCopy(image_renderer,image_texture,NULL,NULL);
@@ -349,8 +378,13 @@ int main(int argc, char** argv) {
     SDL_RenderPresent(colors_renderer);
   }
  finish:
+  SDL_DestroyRenderer(image_renderer);
+  SDL_DestroyRenderer(colors_renderer);
+  SDL_DestroyRenderer(tools_renderer);
   SDL_DestroyWindow(image_window);
   SDL_DestroyWindow(tools_window);
   SDL_DestroyWindow(colors_window);
+  
+  free(palette);
   return(0);
 }
