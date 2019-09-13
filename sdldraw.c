@@ -95,7 +95,112 @@ void draw_full_color_palette_image(unsigned int *palette_image,
   }
 }
 
-	
+static inline int position_in_image_signed(unsigned int width,
+					   unsigned int height,
+					   int x, int y) {
+  return((x > 0 && x < width && y > 0 && y < height));
+}
+
+static inline int position_in_image_unsigned(unsigned int width,
+					     unsigned int height,
+					     unsigned int x,
+					     unsigned int y) {
+  return((x > 0 && x < width && y > 0 && y < height));
+}
+  
+
+void draw_diagonal_in_image(unsigned int *image,
+			    unsigned int width,
+			    unsigned int height,
+			    unsigned int x,
+			    unsigned int y,
+			    unsigned char r,
+			    unsigned char g,
+			    unsigned char b,
+			    int thickness) {
+
+  int i;
+  int th_div_2 = thickness/2;
+
+  int pos_x;
+  int pos_y;
+  
+  for(i=-th_div_2;i<(1+th_div_2);i++) {
+    pos_x = x+i;
+    pos_y = y-i;
+    if(position_in_image_signed(width,height,pos_x,pos_y)) {
+      unsigned int* pixel_i;
+      unsigned char* pixel_c;
+      
+      pixel_i = image+width*pos_y+pos_x;
+      pixel_c = (unsigned char*)pixel_i;
+      
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+      
+      pixel_c[0] = b;
+      pixel_c[1] = g;
+      pixel_c[2] = r;
+      pixel_c[3] = 255;
+      
+#endif
+      
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      
+      pixel_c[3] = b;
+      pixel_c[2] = g;
+      pixel_c[1] = r;
+      pixel_c[0] = 255;
+      
+#endif
+    }
+  }
+}
+
+void draw_square_in_image(unsigned int *image,
+			  unsigned int width,
+			  unsigned int height,
+			  unsigned int x,
+			  unsigned int y,
+			  unsigned char r,
+			  unsigned char g,
+			  unsigned char b,
+			  int thickness) {
+
+  int i,j;
+
+  int th_div_2=thickness/2;
+  
+  for(i=x-th_div_2;i<x+th_div_2;i++) {
+    for(j=y-th_div_2;j<y+th_div_2;j++) {
+      if(position_in_image_signed(width,height,i,j)) {
+	  
+	    unsigned int* pixel_i;
+	    unsigned char* pixel_c;
+	    
+	    pixel_i = image+width*j+i;
+	    pixel_c = (unsigned char*)pixel_i;
+	    
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+	    
+	    pixel_c[0] = b;
+	    pixel_c[1] = g;
+	    pixel_c[2] = r;
+	    pixel_c[3] = 255;
+	    
+#endif
+	    
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+	    
+	    pixel_c[3] = b;
+	    pixel_c[2] = g;
+	    pixel_c[1] = r;
+	    pixel_c[0] = 255;
+	    
+#endif
+      }
+    }
+  }
+}		       			    
 
 void change_pixel_color_in_image(unsigned int *image,
 				 unsigned int width,
@@ -172,7 +277,6 @@ color get_color_by_click_on_colors_window(int x_offset, color* palette) {
   return(palette[x_offset/40]);
 }
 
-
 void bresenham_line(unsigned int* image, int width, int height,
 		    int x, int y, int prev_x, int prev_y, color c,
 		    int thickness,
@@ -214,6 +318,34 @@ void bresenham_line(unsigned int* image, int width, int height,
 
 void draw_tool_box_image(unsigned int* tool_box_image) {
 }  
+
+void diagonal_pen_tool(unsigned int* image, int width, int height,
+		       int x, int y, int prev_x, int prev_y,
+		       int prev_pos_avail, color c, int thickness) {
+  if(prev_pos_avail) {
+    bresenham_line(image, width, height, x, y, prev_x, prev_y, c, thickness,
+		   &draw_diagonal_in_image );
+  } else {
+    draw_diagonal_in_image(image,width,height,x,y,c.r,c.g,c.b, thickness);
+  }
+}
+
+void square_brush_tool(unsigned int* image, int width, int height,
+		       int x, int y, int prev_x, int prev_y,
+		       int prev_pos_avail, color c, int thickness) {
+  if(prev_pos_avail) {
+    bresenham_line(image, width, height, x, y, prev_x, prev_y, c, thickness,
+		   &draw_square_in_image );
+  } else {
+    draw_square_in_image(image,width,height,x,y,c.r,c.g,c.b, thickness);
+  }
+}
+
+void fill_image_tool(unsigned int* image, int width, int height,
+		     int x, int y, int prev_x, int prev_y,
+		     int prev_pos_avail, color c, int thickness) {
+  color_out_image(image, width, height, c.r,c.g,c.b);
+}
 
 void sharp_pencil_tool(unsigned int* image, int width, int height,
 		       int x, int y, int prev_x, int prev_y,
@@ -262,14 +394,14 @@ int main(int argc, char** argv) {
   color selected_color = {0,0,0};
   color* palette = gen_initial_palette();
 
-  int tool_thickness = 1;
+  int tool_thickness = 5;
 
   int cycles = 0;
   
   void (*current_tool)(unsigned int*, int, int, int, int, int, int, int, color,
 		       int);
   
-  current_tool = &sharp_pencil_tool;
+  current_tool = &diagonal_pen_tool;
   
   SDL_SetMainReady();
   
@@ -331,6 +463,7 @@ int main(int argc, char** argv) {
       case SDL_QUIT:
 	goto finish;
 	break;
+	
       case SDL_MOUSEBUTTONDOWN:
 
 	if(event.button.windowID == image_window_id) {
@@ -348,14 +481,24 @@ int main(int argc, char** argv) {
 	
 	mouse_down = 0;
 	break;
+
+      case SDL_WINDOWEVENT:
+
+	if(event.window.event == SDL_WINDOWEVENT_CLOSE &&
+	   event.window.windowID == image_window_id) {
+	  goto finish;
+	}
+	break;
+	
       }
+      
     }
 
     if(mouse_down) {
       
       x = event.motion.x;
       y = event.motion.y;
-      if(x > 0 && x < width && y > 0 && y < height) {
+      if(position_in_image_signed(width,height,x,y)) {
 	SDL_LockTexture(image_texture,NULL,(void**)&image_frame, &pitch);
 
 	(*current_tool)(image_frame, width, height,
@@ -365,33 +508,44 @@ int main(int argc, char** argv) {
 	SDL_UnlockTexture(image_texture);
 	SDL_RenderCopy(image_renderer,image_texture,NULL,NULL);
 	SDL_RenderPresent(image_renderer);
-	prev_pos_avail = 1; 
+	prev_pos_avail = 1;
+	
       } else {
 	/* no previous position available if cursur is went off screen */
 	prev_pos_avail = 0; 
       }
+      
       prev_pos_x = x;
       prev_pos_y = y;
 
     }
 
     if ( cycles == 128 ) {
+      
       SDL_RenderPresent(image_renderer);
       SDL_RenderPresent(colors_renderer);
       cycles = 0;
+      
     }
+    
     SDL_Delay(10);
     cycles++;
-    
   }
  finish:
+
+  SDL_DestroyTexture(image_texture);
+  SDL_DestroyTexture(color_texture);
+  SDL_DestroyTexture(tools_texture);
+  
   SDL_DestroyRenderer(image_renderer);
   SDL_DestroyRenderer(colors_renderer);
   SDL_DestroyRenderer(tools_renderer);
+
   SDL_DestroyWindow(image_window);
   SDL_DestroyWindow(tools_window);
   SDL_DestroyWindow(colors_window);
   
   free(palette);
+  SDL_Quit();
   return(0);
 }
