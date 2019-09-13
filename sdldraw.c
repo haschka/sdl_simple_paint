@@ -263,6 +263,8 @@ int main(int argc, char** argv) {
   color* palette = gen_initial_palette();
 
   int tool_thickness = 1;
+
+  int cycles = 0;
   
   void (*current_tool)(unsigned int*, int, int, int, int, int, int, int, color,
 		       int);
@@ -362,6 +364,7 @@ int main(int argc, char** argv) {
 	
 	SDL_UnlockTexture(image_texture);
 	SDL_RenderCopy(image_renderer,image_texture,NULL,NULL);
+	SDL_RenderPresent(image_renderer);
 	prev_pos_avail = 1; 
       } else {
 	/* no previous position available if cursur is went off screen */
@@ -372,10 +375,14 @@ int main(int argc, char** argv) {
 
     }
 
-    
+    if ( cycles == 128 ) {
+      SDL_RenderPresent(image_renderer);
+      SDL_RenderPresent(colors_renderer);
+      cycles = 0;
+    }
     SDL_Delay(10);
-    SDL_RenderPresent(image_renderer);
-    SDL_RenderPresent(colors_renderer);
+    cycles++;
+    
   }
  finish:
   SDL_DestroyRenderer(image_renderer);
