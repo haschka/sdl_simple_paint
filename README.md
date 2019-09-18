@@ -62,4 +62,8 @@ A palette file must consist of 16 lines containing 3 seperated integers between
 note that you have to specify 16 colors otherwise the default palette will be
 loaded.
 
+* screenshot
+
+![](screenshot.png)
+
 
