@@ -4,9 +4,12 @@
 #include <sys/types.h>                                                          
 #include <sys/stat.h>                                                           
 #include <fcntl.h>                                                              
-                                                                                
+#include <png.h>
+
 #include <SDL2/SDL.h>                                                           
 #define SDL_MAIN_HANDLED
+
+#include "sidebar_image.h"
 
 typedef struct {
   unsigned char r;
@@ -28,6 +31,7 @@ color c_white     = {255, 255,255};
 color c_red       = {255,0,0};
 color c_green     = {0,255,0};
 color c_blue      = {0,0,255};
+
 
 color* gen_initial_palette() {
   color* p = (color*)malloc(sizeof(color)*16);
@@ -51,6 +55,33 @@ color* gen_initial_palette() {
   p[13] = c_blue;
   p[14] = grey180;
   p[15] = grey230;
+  return(p);
+}
+
+color* read_palette_from_file(char* fname) {
+
+  FILE*f = fopen(fname,"r");
+
+  int i;
+  
+  color* p;
+  
+  if (f == NULL) {
+    p = gen_initial_palette();
+    printf("Can not open palette file!");
+    return(p);
+  }
+
+  p = (color*)malloc(sizeof(color)*16);
+
+  for(i = 0; i < 16; i++) {
+    if ( 3 != fscanf(f,"%hhu %hhu %hhu",&(p[i].r), &(p[i].g), &(p[i].b))) {
+      free(p);
+      p = gen_initial_palette();
+      printf("Palette file corrupt!\n");
+      return(p);
+    }
+  }
   return(p);
 }
 
@@ -316,6 +347,123 @@ void bresenham_line(unsigned int* image, int width, int height,
   
 }
 
+int png_to_image_frame(FILE* f, unsigned int** out_image,
+		       unsigned int* width,
+		       unsigned int* height) {
+
+  int i,j;
+  
+  png_byte color_type, depth;
+  png_bytep *row = NULL;
+  png_bytep png_pixel;
+  
+  png_infop info;
+  
+  png_structp structure = NULL;
+
+  unsigned int* pixel_i;
+  unsigned char* pixel_c;
+
+  unsigned int * image;
+  
+  structure = png_create_read_struct(PNG_LIBPNG_VER_STRING,
+				     NULL, NULL, NULL);
+  if(!structure) return(1);
+
+  info = png_create_info_struct(structure);
+
+  if(!info) return(2);
+
+  png_init_io(structure, f);
+  png_read_info(structure, info);
+
+  width[0] = png_get_image_width(structure, info);
+  height[0] = png_get_image_height(structure, info);
+  color_type = png_get_color_type(structure, info);
+  depth = png_get_bit_depth(structure, info);
+
+  if (depth == 16) {
+    png_set_strip_16(structure);
+  }
+
+  if (color_type == PNG_COLOR_TYPE_PALETTE) {
+    png_set_palette_to_rgb(structure);
+  }
+
+  if (color_type == PNG_COLOR_TYPE_GRAY && depth < 8) {
+    png_set_expand_gray_1_2_4_to_8(structure);
+  }
+
+  if (png_get_valid(structure, info, PNG_INFO_tRNS)) {
+    png_set_tRNS_to_alpha(structure);
+  }
+
+  if (color_type == PNG_COLOR_TYPE_RGB ||
+      color_type == PNG_COLOR_TYPE_GRAY ||
+      color_type == PNG_COLOR_TYPE_PALETTE) {
+
+    png_set_filler(structure, 0xFF, PNG_FILLER_AFTER);
+  }
+
+  if (color_type == PNG_COLOR_TYPE_GRAY ||
+      color_type == PNG_COLOR_TYPE_GRAY_ALPHA) {
+    png_set_gray_to_rgb(structure);
+  }
+
+  png_read_update_info(structure,info);
+
+  row = (png_bytep*)malloc(sizeof(png_bytep)*height[0]);
+
+  if(row == NULL) return 3;
+  
+  for(i = 0; i < height[0]; i++) {
+    row[i] = (png_byte*)malloc(png_get_rowbytes(structure,info));
+    if(row[i] == 0) return 3; 
+  }
+
+  image = (unsigned int*)malloc(sizeof(unsigned int)*width[0]*height[0]);
+
+  if(image == NULL) return 3;
+  
+  png_read_image(structure,row);
+
+  
+  for(j = 0; j < height[0]; j++) {
+    for(i = 0; i < width[0]; i++) {
+      png_pixel = (row[j]+(i*4));
+      pixel_i = image+j*width[0]+i;
+      pixel_c = (char*)pixel_i;
+      
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+      
+      pixel_c[0] = png_pixel[2];
+      pixel_c[1] = png_pixel[1];
+      pixel_c[2] = png_pixel[0];
+      pixel_c[3] = png_pixel[3];
+      
+#endif
+      
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+      
+      pixel_c[3] = png_pixel[2];
+      pixel_c[2] = png_pixel[1];
+      pixel_c[1] = png_pixel[0];
+      pixel_c[0] = png_pixel[3];
+      
+#endif
+    }
+  }
+  
+ out_image[0] = image;
+ 
+  for(i = 0; i < height[0]; i++) {
+    free(row[i]);
+  }
+  free(row);
+  
+  return(0);
+} 
+
 void draw_tool_box_image(unsigned int* tool_box_image) {
 }  
 
@@ -362,6 +510,8 @@ void sharp_pencil_tool(unsigned int* image, int width, int height,
 
 int main(int argc, char** argv) {
 
+  unsigned int* image_buffer_from_file;
+  
   unsigned int* image_frame;
   unsigned int* colors_frame;
   unsigned int* tools_frame;
@@ -383,7 +533,7 @@ int main(int argc, char** argv) {
   SDL_Texture *image_texture;
   SDL_Texture *color_texture;
   SDL_Texture *tools_texture;
-  int pitch = width*4, color_pitch=640*4;
+  int pitch = width*4, color_pitch=640*4, tools_pitch=80*4;
 
   int mouse_down = 0;
 
@@ -397,11 +547,80 @@ int main(int argc, char** argv) {
   int tool_thickness = 5;
 
   int cycles = 0;
+
+  size_t o_filename_length, w_filename_length;
+  FILE* w_file;
+  FILE* o_file;
+
+  char* o_filename;
+  char* w_filename;
+
+  int image_comes_from_input_image = 0;
+  
+  char def_w_filename[13] = "paintout.png";
   
   void (*current_tool)(unsigned int*, int, int, int, int, int, int, int, color,
 		       int);
   
   current_tool = &diagonal_pen_tool;
+
+  if(argc > 1) {
+    if (access( argv[1], F_OK ) == 0) {
+      if (access( argv[1], R_OK ) == 0) {
+	
+	o_filename_length = sizeof(char)*strlen(argv[1])+1;
+	o_filename = (char*)malloc(o_filename_length);
+	memcpy(o_filename,argv[1],o_filename_length);
+	
+	if (access( argv[1], W_OK ) == 0) {
+	  w_filename = (char*)malloc(o_filename_length);
+	  memcpy(w_filename,argv[1],o_filename_length);
+	  w_filename_length = o_filename_length;
+	} else {
+	  if(access( def_w_filename, W_OK)) {
+	    printf("Can not write to given filename, will use %s\n",
+		   def_w_filename);
+	    
+	    w_filename_length = sizeof(char)*13;
+	    w_filename = (char*)malloc(w_filename_length);
+	    memcpy(w_filename,def_w_filename,w_filename_length);
+	  } else {
+	    printf("Can not write to an image, drawing can not be saved\n");
+	  }
+	}
+	o_file = fopen(o_filename,"rb");
+	
+	if(!png_to_image_frame(o_file, &image_buffer_from_file,
+			       &width, &height)) {
+	  printf("Could not read input image - exiting early\n");
+	  return(1);
+	}
+	pitch = 4*width;
+	image_comes_from_input_image = 1;
+      }
+    } else {
+      w_file = fopen(argv[1],"wb");
+      if(!w_file) {
+	printf("Can not write to an image, drawing can not be saved\n");
+      } else {
+	w_filename_length = sizeof(char)*strlen(argv[1])+1;
+	w_filename = (char*)malloc(w_filename_length);
+	memcpy(w_filename,argv[1],w_filename_length);
+	fclose(w_file);
+	unlink(argv[1]);
+	if (argc == 4 || argc == 5) {
+	  sscanf(argv[2],"%u",&width);
+	  sscanf(argv[3],"%u",&height);
+	}
+      }
+    }
+  }
+
+  if(argc == 5) {
+    palette = read_palette_from_file(argv[4]);
+  } else {
+    palette = gen_initial_palette();
+  }
   
   SDL_SetMainReady();
   
@@ -441,7 +660,18 @@ int main(int argc, char** argv) {
   colors_window_id = SDL_GetWindowID(colors_window);
   
   SDL_LockTexture(image_texture,NULL,(void**)&image_frame, &pitch);
-  color_out_image(image_frame,width,height,255,255,255);
+
+  if (image_comes_from_input_image) {
+
+    memcpy(image_frame,image_buffer_from_file,
+	   sizeof(unsigned int)*width*height);
+    
+  } else {
+
+    color_out_image(image_frame,width,height,255,255,255);
+    
+  }
+  
   SDL_UnlockTexture(image_texture);
 
   SDL_RenderCopy(image_renderer,image_texture,NULL,NULL);
@@ -455,6 +685,14 @@ int main(int argc, char** argv) {
   SDL_RenderCopy(colors_renderer,color_texture,NULL,NULL);
   
   SDL_RenderPresent(colors_renderer);
+
+  SDL_LockTexture(tools_texture,NULL,(void**)&tools_frame, &tools_pitch);
+  memcpy(tools_frame,tools_image,sizeof(unsigned int)*38400);
+  SDL_UnlockTexture(tools_texture);
+
+  SDL_RenderCopy(tools_renderer,tools_texture,NULL,NULL);
+  
+  SDL_RenderPresent(tools_renderer);
   
   while(1) {
     
