@@ -79,9 +79,13 @@ color* read_palette_from_file(char* fname) {
       free(p);
       p = gen_initial_palette();
       printf("Palette file corrupt!\n");
+      fclose(f);
+
       return(p);
     }
   }
+  
+  fclose(f);
   return(p);
 }
 
@@ -308,6 +312,28 @@ color get_color_by_click_on_colors_window(int x_offset, color* palette) {
   return(palette[x_offset/40]);
 }
 
+int get_toolthickness_by_click_on_tools_window(int y_offset) {
+
+  if(y_offset > 460) {
+    return(11);
+  }
+  if(y_offset <= 460 && y_offset > 442) {
+    return(7);
+  }
+  if(y_offset <= 442 && y_offset > 421) {
+    return(5);
+  }
+  if(y_offset <= 421 && y_offset > 396) {
+    return(3);
+  }
+  if(y_offset <= 396 && y_offset > 375) {
+    return(1);
+  }
+  return(5);
+}
+   
+  
+
 void bresenham_line(unsigned int* image, int width, int height,
 		    int x, int y, int prev_x, int prev_y, color c,
 		    int thickness,
@@ -417,8 +443,8 @@ int png_to_image_frame(FILE* f, unsigned int** out_image,
   if(row == NULL) return 3;
   
   for(i = 0; i < height[0]; i++) {
-    row[i] = (png_byte*)malloc(png_get_rowbytes(structure,info));
-    if(row[i] == 0) return 3; 
+    row[i] = (png_byte*)malloc((size_t)png_get_rowbytes(structure,info));
+    if(row[i] == NULL) return 3;
   }
 
   image = (unsigned int*)malloc(sizeof(unsigned int)*width[0]*height[0]);
@@ -508,6 +534,107 @@ void sharp_pencil_tool(unsigned int* image, int width, int height,
 }
 
 
+int save_image_to_png(char* fname, unsigned int* image_frame,
+		      unsigned int width, unsigned int height) {
+  
+  int i,j;
+  
+  png_bytep *row = NULL;
+  png_bytep png_pixel;
+
+  FILE* f = fopen(fname,"wb");
+
+  png_structp structure = png_create_write_struct(PNG_LIBPNG_VER_STRING,
+						  NULL, NULL, NULL);
+
+  unsigned int* pixel_i;
+  unsigned char* pixel_c;
+  
+  png_infop info;
+  
+  if (f == NULL ) return 1;
+  if (structure == NULL) return 2;
+
+  info = png_create_info_struct(structure);
+  
+  png_init_io(structure,f);
+
+  png_set_IHDR(structure, info, width, height, 8,
+	       PNG_COLOR_TYPE_RGBA,
+	       PNG_INTERLACE_NONE,
+	       PNG_COMPRESSION_TYPE_DEFAULT,
+	       PNG_FILTER_TYPE_DEFAULT);
+
+  png_write_info(structure, info);
+
+  row = (png_bytep*)malloc(sizeof(png_bytep)*height);
+
+  if(row == NULL) return 3;
+  
+  for(i = 0; i < height; i++) {
+    row[i] = (png_byte*)malloc(sizeof(unsigned int)*width);
+    if(row[i] == 0) return 3; 
+  }
+  
+  for(j = 0; j < height; j++) {
+    for(i = 0; i < width; i++) {
+      png_pixel = (row[j]+(i*4));
+      pixel_i = image_frame+j*width+i;
+      pixel_c = (char*)pixel_i;
+
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+
+      png_pixel[2] = pixel_c[0];
+      png_pixel[1] = pixel_c[1];
+      png_pixel[0] = pixel_c[2];
+      png_pixel[3] = pixel_c[3];
+
+#endif
+      
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+
+      png_pixel[2] = pixel_c[3];
+      png_pixel[1] = pixel_c[2];
+      png_pixel[0] = pixel_c[1];
+      png_pixel[3] = pixel_c[0];
+
+#endif
+    }
+  }
+
+  png_write_image(structure, row);
+  png_write_end(structure, NULL);
+
+  for(i = 0; i < height; i++) {
+    free(row[i]);
+  }
+  free(row);
+
+  png_destroy_write_struct(&structure, &info);
+
+  fclose(f);
+}
+
+void (*get_tool_by_click_on_tools_window(int y_offset))(unsigned int*,
+							int, int, int,
+							int, int, int,
+							int, color, int) {
+
+  if(y_offset < 185 && y_offset > 150 ) {
+    return(&fill_image_tool);
+  }
+  if(y_offset <= 150 && y_offset > 125) {
+    return(&diagonal_pen_tool);
+  }
+  if(y_offset <= 125 && y_offset > 95) {
+    return(&square_brush_tool);
+  }
+  if(y_offset <= 95 && y_offset > 75) {
+    return(&sharp_pencil_tool);
+  }
+  return(&sharp_pencil_tool);
+}
+  
 int main(int argc, char** argv) {
 
   unsigned int* image_buffer_from_file;
@@ -590,7 +717,7 @@ int main(int argc, char** argv) {
 	}
 	o_file = fopen(o_filename,"rb");
 	
-	if(!png_to_image_frame(o_file, &image_buffer_from_file,
+	if(png_to_image_frame(o_file, &image_buffer_from_file,
 			       &width, &height)) {
 	  printf("Could not read input image - exiting early\n");
 	  return(1);
@@ -616,6 +743,12 @@ int main(int argc, char** argv) {
     }
   }
 
+  if(argc == 1) {
+    w_filename_length = sizeof(char)*13;
+    w_filename = (char*)malloc(w_filename_length);
+    memcpy(w_filename,def_w_filename,w_filename_length);
+  }
+  
   if(argc == 5) {
     palette = read_palette_from_file(argv[4]);
   } else {
@@ -701,9 +834,9 @@ int main(int argc, char** argv) {
       case SDL_QUIT:
 	goto finish;
 	break;
-	
-      case SDL_MOUSEBUTTONDOWN:
 
+      case SDL_MOUSEBUTTONDOWN:
+	
 	if(event.button.windowID == image_window_id) {
 	  mouse_down = 1;
 	  prev_pos_avail = 0;
@@ -713,8 +846,27 @@ int main(int argc, char** argv) {
 	  selected_color = get_color_by_click_on_colors_window(event.button.x,
 							       palette);
 	}
+
+	if(event.button.windowID == tools_window_id) {
+	  if(event.button.y < 184 && event.button.y > 74) {
+	    current_tool = get_tool_by_click_on_tools_window(event.button.y);
+	  }
+	  if(event.button.y < 356 && event.button.y > 324) {
+
+	    printf("Saving Image \n");
+	    SDL_LockTexture(image_texture,NULL,(void**)&image_frame, &pitch);
+	    save_image_to_png(w_filename, image_frame, width, height);
+	    SDL_UnlockTexture(image_texture);
+	    
+	  }
+	  if(event.button.y < 481 && event.button.y > 374) {
+	    tool_thickness =
+	      get_toolthickness_by_click_on_tools_window(event.button.y);
+	  } 
+	}
+	
 	break;
-	  
+	
       case SDL_MOUSEBUTTONUP:
 	
 	mouse_down = 0;
@@ -759,7 +911,7 @@ int main(int argc, char** argv) {
     }
 
     if ( cycles == 128 ) {
-      
+      SDL_RenderPresent(tools_renderer);
       SDL_RenderPresent(image_renderer);
       SDL_RenderPresent(colors_renderer);
       cycles = 0;
