@@ -23,7 +23,7 @@ freely, subject to the following restrictions:
     This notice may not be removed or altered from any source distribution.
 
 
-* compilation
+* compilation: 
 You need the sdl2 library and libpng, both in the dev versions installed 
 on your system.
 
@@ -31,8 +31,12 @@ On a typical linux / unix system with gcc you may compile this with:
 ```
 gcc -O2 `sdl2-config --libs` `sdl2-config --cflags` sdldraw.c -o sdldraw -lpng
 ```
-
-* usage 
+In case the screen might stay black or you experiance other troubles you
+might compile the program to use software based rendering of the canvas:
+```
+gcc -O2 -DSOFTWARE_RENDERING `sdl2-config --libs` `sdl2-config --cflags` sdldraw.c -o sdldraw -lpng
+```
+* usage: 
 You then may draw on a png image by calling:
 ```
 ./sdldraw your.png
@@ -62,7 +66,13 @@ A palette file must consist of 16 lines containing 3 seperated integers between
 note that you have to specify 16 colors otherwise the default palette will be
 loaded.
 
-* screenshot
+In order to use the custom palette file you have to call `./sdldraw` with all 
+its arguments:
+```
+./sdldraw filename.png sizex sizey palettefile
+```
+
+* screenshot:
 
 ![](screenshot.png)
 
