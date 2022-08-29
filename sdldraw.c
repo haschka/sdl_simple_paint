@@ -885,12 +885,14 @@ int main(int argc, char** argv) {
     }
 
     if(mouse_down) {
-      
-      x = event.motion.x;
-      y = event.motion.y;
+      SDL_GetMouseState(&x, &y);
+      /* x = event.motion.x;
+	 y = event.motion.y; */
+      printf( "%u %u",x,y);
       if(position_in_image_signed(width,height,x,y)) {
 	SDL_LockTexture(image_texture,NULL,(void**)&image_frame, &pitch);
-
+	/* SDL_RenderReadPixels(image_renderer, NULL, SDL_PIXELFORMAT_ARGB8888,
+	                        image_frame,pitch); */
 	(*current_tool)(image_frame, width, height,
 		        x, y, prev_pos_x, prev_pos_y,
 		        prev_pos_avail, selected_color, tool_thickness);
