@@ -888,7 +888,6 @@ int main(int argc, char** argv) {
       SDL_GetMouseState(&x, &y);
       /* x = event.motion.x;
 	 y = event.motion.y; */
-      printf( "%u %u",x,y);
       if(position_in_image_signed(width,height,x,y)) {
 	SDL_LockTexture(image_texture,NULL,(void**)&image_frame, &pitch);
 	/* SDL_RenderReadPixels(image_renderer, NULL, SDL_PIXELFORMAT_ARGB8888,
